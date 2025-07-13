@@ -1,0 +1,54 @@
+services:
+  traefik:
+    image: traefik:v3.4.4
+    command:
+      - --log.level=DEBUG
+      - --accesslog=true
+      - --global.sendanonymoususage=false
+      - --global.checknewversion=false
+      - --api.insecure=true
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --entrypoints.web.http.redirections.entryPoint.to=websecure
+      - --entrypoints.web.http.redirections.entryPoint.scheme=https
+      - --entrypoints.web.http.redirections.entrypoint.permanent=true
+      # Enable default self-signed certificate
+      - --entrypoints.websecure.http.tls=true
+      # Plugin configuration
+      - --experimental.plugins.traefikoidc.modulename=github.com/lukaszraczylo/traefikoidc
+      - --experimental.plugins.traefikoidc.version=v0.6.1
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    labels:
+      - traefik.enable=true
+      # OIDC Middleware configuration
+      - traefik.http.middlewares.oidc.plugin.traefikoidc.providerURL=${OIDC_PROVIDER_URL}
+      - traefik.http.middlewares.oidc.plugin.traefikoidc.clientID=${OIDC_CLIENT_ID}
+      - traefik.http.middlewares.oidc.plugin.traefikoidc.clientSecret=${OIDC_CLIENT_SECRET}
+      - traefik.http.middlewares.oidc.plugin.traefikoidc.callbackURL=${OIDC_CALLBACK_URL:-/oauth2/callback}
+      - traefik.http.middlewares.oidc.plugin.traefikoidc.logoutURL=${OIDC_LOGOUT_URL:-/oauth2/logout}
+      - traefik.http.middlewares.oidc.plugin.traefikoidc.postLogoutRedirectURI=${OIDC_POST_LOGOUT_REDIRECT_URI:-/}
+      - traefik.http.middlewares.oidc.plugin.traefikoidc.sessionEncryptionKey=${OIDC_SESSION_ENCRYPTION_KEY}
+      - traefik.http.middlewares.oidc.plugin.traefikoidc.scopes=${OIDC_SCOPES:-openid email profile}
+      - traefik.http.middlewares.oidc.plugin.traefikoidc.forceHTTPS=${OIDC_FORCE_HTTPS:-true}
+      - traefik.http.middlewares.oidc.plugin.traefikoidc.headers[0].name=X-Access-Token
+      - traefik.http.middlewares.oidc.plugin.traefikoidc.headers[0].value={{.AccessToken}}
+      - traefik.http.middlewares.oidc.plugin.traefikoidc.headers[1].name=X-ID-Token
+      - traefik.http.middlewares.oidc.plugin.traefikoidc.headers[1].value={{.IdToken}}
+    restart: unless-stopped
+
+  whoami:
+    image: traefik/whoami:latest
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.whoami.rule=PathPrefix(`/`)
+      - traefik.http.routers.whoami.entrypoints=websecure
+      - traefik.http.routers.whoami.tls=true
+      - traefik.http.routers.whoami.middlewares=oidc
+      - traefik.http.services.whoami.loadbalancer.server.port=80
+    restart: unless-stopped
